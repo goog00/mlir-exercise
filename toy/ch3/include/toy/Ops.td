@@ -289,7 +289,7 @@ def ReturnOp : Toy_Op<"return", [Pure, HasParent<"FuncOp">,
 //===----------------------------------------------------------------------===//
 
 
-def TransposeOp : Toy_Op<"transpose">{
+def TransposeOp : Toy_Op<"transpose",[NoSideEffect]>{
     let summary = "transpose operation";
 
     let arguments = (ins F64Tensor:$input);
