@@ -3,18 +3,22 @@
 #include "mlir/IR/Attributes.h"
 #include "mlir/IR/Builders.h"
 #include "mlir/IR/BuiltinTypes.h"
+#include "mlir/IR/Location.h"
 #include "mlir/IR/OpImplementation.h"
-#include "mlir/IR/Operation.h"
 #include "mlir/IR/OperationSupport.h"
-#include "mlir/IR/Value.h"
+#include "mlir/IR/ValueRange.h"
+#include "mlir/Interfaces/CallInterfaces.h"
 #include "mlir/Interfaces/FunctionImplementation.h"
 #include "mlir/Support/LLVM.h"
 #include "mlir/Support/LogicalResult.h"
+#include "mlir/Transforms/InliningUtils.h"
 #include "llvm/ADT/ArrayRef.h"
 #include "llvm/ADT/STLExtras.h"
 #include "llvm/ADT/StringRef.h"
 #include "llvm/Support/Casting.h"
 #include <algorithm>
+#include <cassert>
+#include <cstdint>
 #include <string>
 
 using namespace mlir;
@@ -23,6 +27,70 @@ using namespace mlir::toy;
 
 #include "toy/Dialect.cpp.inc"
 
+
+
+//===----------------------------------------------------------------------===//
+// ToyInlinerInterface
+//===----------------------------------------------------------------------===//
+
+
+//定义处理toy operation 的处理内联的接口
+
+struct ToyInlinerInterface : public DialectInlinerInterface {
+    using DialectInlinerInterface::DialectInlinerInterface;
+
+  //===--------------------------------------------------------------------===//
+  // Analysis Hooks
+  //===--------------------------------------------------------------------===//
+
+  //toy内部的所有operation调用都可以内联
+  bool isLegalToInline(Operation *call, Operation *callable,bool wouldBeCloned) const final {
+    return true;
+  }
+  
+  //toy 内部的所有operation都可以内联
+  bool isLegalToInline(Operation *,Region *, bool, IRMapping &) const final {
+    return true;
+  }
+
+  //toy 内部的所有function都可以内联
+  bool isLegalToInline(Region *,Region *,bool,IRMapping &) const final{
+    return true;
+  }
+
+
+
+  //===--------------------------------------------------------------------===//
+  // Transformation Hooks
+  //===--------------------------------------------------------------------===//
+
+
+  //如果需要，在处理给定内联终止符（toy.return)可使用新的Operation替换它
+  void handleTerminator(Operation *op,ValueRange valuesToRepl) const final {
+
+    //只有“toy.return" 需要被处理
+    auto returnOp = cast<ReturnOp>(op);
+
+    //使用return operands直接替换值
+    assert(returnOp.getNumOperands() == valuesToRepl.size();
+
+    for(const auto &it : llvm::enumerate(returnOp.getOperands()))
+       valuesToRepl[it.index()].replaceAllUsesWith(it.value());
+
+  }
+  
+  ///尝试实现此方言的调用与可调用区域之间类型不匹配的转换。
+  ///此方法应生成一个将“input”作为唯一操作数的操作，并生成一个“resultType”结果。
+  //如果无法生成转换，则应返回nullptr。
+  Operation *materializeCallConversion(OpBuilder &builder,Value input,
+                                        Type resultType,
+                                        Location conversionLoc) const final{
+
+        return builder.create<CastOp>(conversionLoc,resultType,input);
+  }
+
+
+}
 
 //===----------------------------------------------------------------------===//
 // ToyDialect
@@ -37,6 +105,8 @@ void ToyDialect::initialize() {
     #define GET_OP_LIST
     #include "toy/Ops.cpp.inc"
     >();
+
+    addInterface<ToyInlinerInterface>();
 }
 
 //===----------------------------------------------------------------------===//
@@ -114,7 +184,7 @@ mlir::LogicalResult ConstantOp::verify() {
 //===----------------------------------------------------------------------===//
 
  
-void AddOp::build(mlir::OpBuilder &builder,mlir::OperationState &state,
+ void AddOp::build(mlir::OpBuilder &builder,mlir::OperationState &state,
                     mlir::Value lhs,mlir::Value rhs) {
     state.addTypes(UnrankedTensorType::get(builder.getF64Type()));
     state.addOperands({lhs,rhs});
@@ -130,6 +200,47 @@ void AddOp::print(mlir::OpAsmPrinter &p){
     printBinaryOp(p,*this);
 }
 
+
+//===----------------------------------------------------------------------===//
+// CastOp
+//===----------------------------------------------------------------------===//
+
+void CastOp::inferShapes(){
+    getResult().setType(getInput().getType());
+}
+
+
+bool CastOp::areCastCompatible(TypeRange inputs,TypeRange outputs) {
+    if(inputs.size() != 1 || outputs.size() !=1){
+        return false;
+    }
+     TensorType input = llvm::dyn_cast<TensorType>(inputs.front());
+     TensorType output = llvm::dyn_cast<TensorType>(outputs.front());
+
+     if(!input || !output || input.getElementType() != output.getElementType())
+       return false;
+
+    return !input.hasRank() || !output.hasRank() || input == output;   
+}
+
+
+//===----------------------------------------------------------------------===//
+// MulOp
+//===----------------------------------------------------------------------===//
+
+void MulOp::build(mlir::OpBuilder &builder,mlir::OperationState &state,
+            mlir::Value lhs,mlir::Value rhs){
+        state.addTypes(UnrankedTensorType::get(builder.getF64Type()));
+        state.addOperands({lhs,rhs});
+
+}
+
+
+mlir::ParseResult MulOp::parse(mlir::OpAsmParser &parser,mlir::OperationState &result){
+    return parseBinaryOp(parser,result);
+}
+
+void MulOp::inferShapes(){getResult().setType(getLhs().getType());}
 
 
 //===----------------------------------------------------------------------===//

@@ -138,45 +138,24 @@ private:
       return nullptr;
     }
 
-    ReturnOp returnOp;
+    ReturnOp  returnOp;
     if(!entryBlock.empty()){
       returnOp = dyn_cast<ReturnOp>(entryBlock.back());
     }
 
     if(!returnOp){
       builder.create<ReturnOp>(loc(funcAST.getProto()->loc()));
-    } else if(returnOp.hasOperand()){
-      function.setType(builder.getFunctionType(function.getFunctionType().getInputs(),
-            getType(VarType{})));
     }
+     else if(returnOp.hasOperand()){
+      function.setType(builder.getFunctionType(function.getFunctionType().getInputs(),getType(VarType{})));
+     }
 
-    return function;
+     if(funcAST.getProto()->getName() != "main")
+       function.setPrivate();
+
+     return function;  
 
   }
-
-  mlir::Value mlirGen(BinaryExprAST &binop){
-    mlir::Value lhs = mlirGen(*binop.getLHS());
-    if(!lhs)
-      return nullptr;
-
-    mlir::Value rhs = mlirGen(*binop.getRHS());
-    if(!rhs)
-       return nullptr;
-
-    auto location = loc(binop.loc());
-
-    switch (binop.getOp())
-    {
-    case '+':
-     return builder.create<AddOp>(location,lhs,rhs);
-    case '*':
-     return builder.create<MulOp>(location,lhs,rhs);
-    }  
-    emitError(location,"invalid binary operator '") << binop.getOp() << "'"   ;
-
-    return nullptr;
-  }
-
 
   /// 生成打印表达式
   mlir::LogicalResult mlirGen(PrintExprAST &call) {

@@ -12,6 +12,7 @@ include "mlir/IR/OpBase.td"
 include "mlir/Interfaces/FunctionInterfaces.td"
 include "mlir/IR/SymbolInterfaces.td"
 include "mlir/Interfaces/SideEffectInterfaces.td"
+include "mlir/Interfaces/CallInterfaces.td"
 
 
 //定义toy dialect
@@ -76,26 +77,29 @@ def ConstantOp : Toy_Op<"constant",[Pure]> {
 }
 
 //===----------------------------------------------------------------------===//
-// AddOp
+// CastOp
 //===----------------------------------------------------------------------===//
 
-def AddOp : Toy_Op<"add"> {
-  let summary = "element-wise addition operation";
-  let description = [{
-    The "add" operation performs element-wise addition between two tensors.
-    The shapes of the tensor operands are expected to match.
+def CastOp : Toy_Op<"cast",[
+        DeclareOpInterfaceMethods<CastOpInterface>,
+        DeclareOpInterfaceMethods<ShapeInferenceOpInterface>,
+        Pure,
+        SameOperandsAndResultShape
+]> {
+    let summary = "shape cast operation";
+    let description = [{
+    The "cast" operation converts a tensor from one type to an equivalent type
+    without changing any data elements. The source and destination types must
+    both be tensor types with the same element type. If both are ranked, then
+    shape is required to match. The operation is invalid if converting to a
+    mismatching constant dimension.
   }];
 
-  let arguments = (ins F64Tensor:$lhs, F64Tensor:$rhs);
-  let results = (outs F64Tensor);
+  let arguments = (ins F64Tensor:$input);
+  let results = (outs F64Tensor:$output);
 
-  // Indicate that the operation has a custom parser and printer method.
-  let hasCustomAssemblyFormat = 1;
+  let assemblyFormat = "$input attr-dict `:` type($input) `to` type($output)";
 
-  // Allow building an AddOp with from the two input operands.
-  let builders = [
-    OpBuilder<(ins "Value":$lhs, "Value":$rhs)>
-  ];
 }
 
 
@@ -164,7 +168,7 @@ def FunOp : Toy_Op<"func",[
 // GenericCallOp  泛型调用
 //===----------------------------------------------------------------------===//
 
-def GenericCallOp : Toy_Op<"generic_call"> {
+def GenericCallOp : Toy_Op<"generic_call",[DeclareOpInterfaceMethods<CallOpInterface>]> {
     let summary = "generic call operation";
 
     let description = [{
@@ -186,8 +190,8 @@ def GenericCallOp : Toy_Op<"generic_call"> {
     }];
 
     let builders = [
-    OpBuilder<(ins "StringRef":$callee, "ArrayRef<Value>":$arguments)>
-        ];
+      OpBuilder<(ins "StringRef":$callee, "ArrayRef<Value>":$arguments)>
+    ];
 
 }
 
@@ -197,7 +201,7 @@ def GenericCallOp : Toy_Op<"generic_call"> {
 //===----------------------------------------------------------------------===//
 
 
-def MulOp : Toy_Op<"mul"> {
+def MulOp : Toy_Op<"mul"，[DeclareOpInterfaceMethods<ShapeInferenceOpInterface>]> {
     let summary = "element-wise multiplication operation";
 
     let description = [{
@@ -312,7 +316,7 @@ def ReturnOp : Toy_Op<"return", [Pure, HasParent<"FuncOp">,
 //===----------------------------------------------------------------------===//
 
 
-def TransposeOp : Toy_Op<"transpose">{
+def TransposeOp : Toy_Op<"transpose",[NoSideEffect]>{
     let summary = "transpose operation";
 
     let arguments = (ins F64Tensor:$input);
